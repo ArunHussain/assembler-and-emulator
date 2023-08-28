@@ -1,0 +1,111 @@
+\documentclass[11pt]{article}
+
+\usepackage{fullpage}
+
+\begin{document}
+
+\title{Final Report}
+\author{Arun Hussain, Bolei Chen, Haotian (Steven) Qi, Bingdong (Owen) Li}
+
+\maketitle
+
+\section{Assembler}
+
+In order to implement the assembler, we began by implementing two generic ADTs - a generic linked list and a generic hashmap. The generic linked list is implemented as a structure that holds a number of callback function pointers and a pointer to its head node. Each node holds a pointer to the node after it. The generic hashmap is implemented as an array of linked list pointers. The hashmap itself is a structure that holds the arrya of LLs, a number of function pointers, including a hash function.
+
+We implemented a two-pass assembler. The program begins by reading from the assembly source file and storing the lines in a linked list. At this stage, lines that consist purely of whitespace are skipped, and labels are placed on the same line as the line they are labelling (at the time, it was believed that labels can occur inline in regular syntax as well).
+
+Then, the first pass would build the symbol table, implemented as a generic hashmap. Each label is associated with the address it labels, calculated as a multiple of the current number, plus an optional offset for different starting program counter positions. This hashmap also associates register names with their register number.
+
+The parser works on the second pass, making use of the fact that each line will assemble into one and only one machine code instruction. It thus accepts a single line of input and produces an internal representation, implemented as a structure containing a union of structures and a type variable. Each of these structures represent a specific instruction type, and contain within them more unions of structures, each of which represent subtypes. Each subtype may contain further structures, to represent subparts (e.g., the address for a single data transfer instruction, the operand for a data processing instruction).
+
+It begins by skipping a label, if it is present. It then calls the tokenizer to split the line into tokens. Since the structure of ARM assembly is quite simple, we implemented an ad hoc parser, instead of using a more complex parsing algorithm. Each instruction type is represented by a function, and each subtype (if present) a branch of a switch statement within that function. Since parsing and machine code generation have different needs, the parser splits instructions into more subtypes than the machine code generator, but the pre-defined internal representation insulates these differences. Specialist subparts (e.g., operands) that are common to multiple instruction subtypes are split into their own functions. Other common tokens that require multiple branching paths to parse (e.g., literal values that may be hexadecimal or decimal) are split into their own functions.
+
+The machine code generator produces one instruction's worth of machine code per line. It accepts a file pointer to which it writes, making use of \verb|ab| mode to directly append to the end of the file (the main program clears the file of its contents first). It accepts an internal representation. Mirroring the assembler's structure, each instruction type is represented by a function and each subpart by a branch in a switch statement. It implements a \verb|set_bytes| function that allows the \verb|hi - lo + 1| bytes between \verb|hi| and \verb|lo| positions to be set in a clear and concise manner. Each subpart then sets its own portion, while the main instruction type handling function sets the common portions of the instruction. The machine code generator does not need to know about labels, their associated addresses, or even the current program counter step, relying only on the internal representation.
+
+\section{Part III - Blinking LED}
+
+To implement the desired assembly, the task was divided into four sections: reading, writing, and waiting.
+
+Prior to writing, the content of the status address was loaded into a register. Using \verb|lsl| and \verb|tst|, we are then able to examine the status register's \verb|WRITE FULL| flag. If the flag is 0, we copy the request buffer's contents to a 16-byte aligned address. For the write operation, the address is passed to the write address using \verb|str|. If the flag's value is not 0, the programme will wait until the flag has been set correctly. This action not only modifies the contents of the write register, but also enqueues an address into the Mailbox queue embedded in the system.
+
+For reading, we first retrieve the content from the status register and then check the READ EMPTY flag in a manner similar to that used for writing. If the flag is set to 0, \verb|ldr| is used to load the message from the read register. Otherwise, the code will invoke the wait operation until the flage's value is 0.
+
+For waiting, we loaded a value for waiting into a register that served as a counter. We continue to decrement the value of the counter by one until it reaches 0. We can alter the initial value loaded into the register in order to control the waiting time. This allowed the programme to wait for a predetermined period of time.
+
+To assemble each component, our code executes the write operation, which enqueues an address into the Mailbox queue. This will illuminate the LED if the request buffer contains the correct message. Then, we read from the read register to prevent Mailbox queue overflow. After the reading, we simply begin our counter and wait for a period of time prior to the subsequent iteration. We were able to make the LED blink indefinitely by repeatedly executing the aforementioned steps and, at each iteration, modifying the message in the request buffer.
+
+\section{Extension}
+
+Our extension project was a greatly simplified raytracing graphcis engine written in C. It is able to render a texturable cubes in 3D space. The lack of support for rendering arbitrary models allows the non-GPU raytracing engine to run in real time. Obviously, we did not come up with either the concept of the raytracing in general, nor the specific method used to raytrace in a grid of cubes. Resources used may be found in the references.
+
+The renderer renders each scene, accepting the camera's position in the grid, the viewport height, the viewport width, and the field of view. One ray is generated for each pixel in the viewport, which is used to determine what that pixel should be. The raytracing algorithm computes the path of the ray and what face of what cube it connects with. It then determines which specific pixel on that face is hit. If the hit pixel is reflexive, it calculates a reflected ray and produces a weighted average pixel. Textures can be produced in two ways. It can either be a static 2D array of pixels (represented as a 1D array with a fixed height and width), or a function that produces a pixel given the hit position and the normal.
+
+In order to display the result, the renderer uses the SDL2 graphics library. We used it exclusively to display pixels in a window, and to accept key inputs so the camera can be moved and rotated for testing purposes.
+
+The primary challenge in creating the raytracing engine is testing it effectively. Due to the very large number of pixels involved, and the relatively high number of steps required to render each ray, simple debugging techniques would produce a very large amount of information, most of which would be irrelevant. The approach we settled on was to only log information related to three pixels near the center. Even then, the produced information was not easy to interpret, since many of the errors arose from either specific mathematics mistakes, or programming logic mistakes that resulted in slight differences in specific numeric values, but produced significant graphical glitches. In the end, most mistakes were fixed by narrowing down the possible error and then examining the code for that area directly, carefully inspecting it for any logic mistakes.
+
+A secondary challenge was related to the limitations of C. The complexity of the program required the use of a lot of structures, which in turn had the potential to cause memory errors. While memory errors were not quite as common as initially feared, they were difficult to resolve each time they did arise, since they are not always consistent, and due to the extension's graphical nature they may occur every time the scene re-renders, tying into the previously described debugging problem.
+
+Another major problem was portability, since linking SDL2 on different operating systems requires different paths, and indeed different compiler flags to be set. Due to the graphical nature of the project, using lab machines via SSH was not desirable, so instead we used CMake to build the project.
+
+\subsection{Testing}
+
+It proved somewhat difficult to test the raytracing engine to the degree of other projects, due to the aforementioned problems with checking every detail. It is not clear what the expected output for each pixel on the screen should be, and due to the inherently artifact-prone nature of rendering at a very low resolution, and the inconsistently involved in floating point calculations, it would be quite a surprise if any specific render matched up with an 'expected value' in any case.
+
+Similarly, unit testing would be rather difficult. While there are individual components that may be stripped out and tested (e.g., the ray rotation code), the most error-prone parts comes from putting these large number of small units together, a part that can only be tested when the program is executed as a whole. The relatively small scope of the project allows thorough testing of each new feature when it is added, thus ensuring that when a graphical error does occur, the newest addition is the cause.
+
+It is quite easy, however, to verify that the program achieves its general goals, simply by moving and looking around the rendered scene. If there were any major incongruities, they would swiftly make themselves apparent, as the scene would not look correct. While hardly photorealistic (due to the lack of lightsources in general), major problems in reflection, field of view, camera turning, etc. were immediately obvious.
+
+\section{Group Reflection}
+
+Overall, our collaboration was quite effective. After the group was formed, we immediately established a convenient means of communication, which has not changed throughout the project. By maintaining one central discussion platform, any news would necessarily reach everyone, and no one would be left out. Group members who were not present for any particular discussion could simply read the message log afterwards, and provide their input at any time.
+
+This same platform also made it easy to collaborate live, at any time in the day. For example, when the emulator was complete we were able to create interfaces for assembler modules that same evening. Using a combination of a group voice call and Visual Studio Code Liveshare, we were able to discuss and work on function prototypes at the same time. Had we collaborated via git only, this would have caused significant duplicate work and possible merge conflicts at best, and fundamental misunderstandings of the interface at worst.
+
+Agreeing on an interface beforehand was also an important strategy. By agreeing on what modules would need to be implemented, what functions, procedures, and data types they would need to implement, and what each of these elements did and meant, we simulatenously made it easier to divide project work, but also reduced the chance of misunderstanding and direct file conflicts. Since it is necessary to read and understand at least the broad strokes of the entire specification before designing the interface, we would sort out any disagreements over what the specification actually wanted at this point, eliminating an entire class of possible errors.
+
+Finally, while we set no hard schedule, we achieved similar results by staying in constant communication. The ease of use of the platform of choice meant that it was routine to give progress updates and ask questions. This meant that all members were aware of what other members were doing. If there were some difficulty, other group members would be able to offer assistance and/or dynamically reallocate tasks to stay on track. This approach may not have worked as well in larger teams, and would not have worked at all in very large organizations, but for a small group this meant that we preserved flexibility while not sacrificing timing. Indeed, we were consistently ahead of where we were expected to be, save for a short period of time before the C test, when we felt confident that we could take some time to review the course material.
+
+It is these points that we would like to maintain in any future collaboration (though acknowledging the aforementioned schedule-related considerations). However, there were also many challenges, some related to failing to adhere to our general method.
+
+We failed to establish a single style standard. While on a small project this was of little concern, differences in personal code style, lack of experience with C idioms, and general difference in personal preferences (e.g., one member preferred \verb|for| loops when iterating over a linked list, while some other membes preferred \verb|while| loops) made code review more difficult than it had to be, even if it allowed code to be written slightly faster.
+
+A further problem was the general lack of comments. While the public interface had comments and usage examples, static functions and procedures were rarely documented, which slowed down debugging considerably. Had the project been slightly larger, the time taken may well have increased exponentially. This could have been alleviated by a unit-testing approach, but workload related problems that we will discuss below made fully implementing unit tests difficult.
+
+Finally, some unfortunate circumstances made communication and coordination different. Wildly different schedules meant that on many occasions where we wanted to discuss an urgent issue, for that day there was not a single block of time in which everyone was simultaneously unoccupied. However, this was somewhat alleviated by the fact that text conversations by necessity leave records.
+
+\subsection{Division of Work}
+
+Work was divided evenly on the assembler. Arun Hussain implemented the abstract data types and a function to read the source file. Owen Li implemented the machine code generator and symbol table builder, which accepted internal representation objects and produced and wrote machine code instructions. Bolei Chen and Haotian Qi collaborated on the tokenizer and the parser, which produces internal representation objects from source code.
+
+For the LED, after an initial period of equal collaboration, Bolei Chen and Haotian Qi worked on the majority of LED blinking project, which proved far more difficult than initially anticipated. Haotian Qi provided the initial idea and algorithm suggestions for the extension, and Arun Hussain and Owen Li collaborated on the extension. In addition, Arun Hussain and Bolei Chen collaborated on fixing memory leaks and instances of poor code style in the assembler.
+
+\section{Individual Reflection}
+
+\subsection{Arun Hussain}
+
+This was the first project I'd worked on in C as I only started learning the language in the Summer term. It was a challenging experience as my programming ability was not the best but I managed implementations of some aspects of the project. Initially, I had concerns about communicating effectively with the group but our use of the messaging platform Discord made communicating quick and effective and the group worked in synergy with constant communication about the current progress on various tasks. I was also initially concerned about my ability to manage time effectively as it was a skill I was actively working to improve.
+
+Overall, the project was successful and I managed to develop some key skills including my C ability and time management.
+
+\subsection{Bolei Chen}
+
+As a complete novice to C, I was initially concerned about the implementation of the code. Nevertheless, the project became manageable due to our consistent communication. Using liveshare, we constructed the code skeleton and discussed implementation decisions in detail. I believe that section not only allowed us to make steady progress, but also organised the code in a readable manner.
+
+However, there are still numerous areas for improvement. I believe we were too sluggish to make beneficial structural changes after the creation of the code skeleton, which ultimately hampered code review and maintenance. For example, some functions for creating hashmaps and linked lists require the parameter to be a pointer instead of the actual object, making the code excessively complicated. In addition, I believe we must review the specification more thoroughly the following time to avoid confusion and errors. We spent so much time debugging the parser before realising that we misunderstood the specification.
+
+\subsection{Haotian (Steven) Qi}
+One of the key aspects I focused on was the clarity of my code. I understood that writing clear and well-structured code is essential for both collaboration within the group and for future maintenance and enhancements.  Though I strived to adhere to coding best practices and followed a consistent coding style throughout the project, I do made mistake in the first part of our project. I failed to follow the group format, and creating tons of bugs. By employing meaningful variable and function names, adding comments where necessary, and organizing my code into logical modules, I ensured that my second code was understandable and maintainable with less bugs.
+
+The debug process played a crucial role in the development of my project. Given the complexity of an emulator and assembler, I encountered several challenges and bugs throughout the development process. I adopted a systematic approach to debugging by using a combination of print statements, logging, and interactive debugging tools. I carefully analyzed error messages and used breakpoints to step through the code, identifying and resolving issues at each step. Collaboration and communication were key during the debugging process, as I shared my findings and solutions with each other to ensure a smooth and efficient workflow.
+
+As for the LED light extension, it presented an exciting opportunity to apply my knowledge and skills beyond the core requirements of the project. I integrated the necessary hardware components and implemented the logic to control the LED light based on specific instructions. The project is hard and tedious. I started with simple program such as light up a led, and gradually add more feature to it. Finally, after extensive programming and debugging, I successfully blinked the led.
+
+\subsection{Bingdong (Owen) Li}
+
+Before the project began, I was concerned that I would have some difficulty coordinating with other group members. I had a tendency to do a lot of useless work, simply because I would be more keen to get started doing something than figuring out what I actually needed to do. Fortunately, in this case, this was not an issue. Due to the aforementioned constant communication, every member (myself included) was aware of the specific requirements.
+
+I did, however, make several mistakes when contributing to the overall interface. After reading the specification, I had thought using a hashmap associating strings and function pointers would be a good idea for parsing, and so proposed (and the group adopted) very generic interfaces for linked lists and hashmaps. This proved difficult to implement and difficult to use well, was very error-prone, and required constant explicit type casting.
+
+\end{document}

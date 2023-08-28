@@ -1,0 +1,82 @@
+\documentclass[11pt]{article}
+
+\usepackage{fullpage}
+\usepackage{enumitem}
+
+\begin{document}
+
+\title{ARM Checkpoint}
+\author{Arun Hussain, Bolei Chen, Haotian (Steven) Qi, Bingdong (Owen) Li}
+
+\maketitle
+
+\section{Group Organisation}
+We divided the emulator into the following tasks
+
+\begin{enumerate}
+    \item Reading a binary file instruction by instruction.
+    \item Representing and manipulating memory and registers.
+    \item Decoding and executing data processing (immediate) instructions.
+    \item Decoding and executing data processing (register) instructions.
+    \item Decoding and executing single data transfer instructions.
+    \item Decoding and executing branch instructions.
+    \item Carrying out the fetch-decode-execute cycle.
+\end{enumerate}
+
+We estimated the workload for each task and attempted to distribute them evenly
+beforehand, but left the simpler tasks (items 1., 2., and 6.) unallocated, so we
+could rebalance the workload in case our initial estimates were incorrect.
+
+\begin{description} [align=right,labelwidth=3cm]
+    \item [Arun Hussain] Decoding and executing branch instructions.
+    \item [Bolei Chen] Decoding and executing data processing (immediate) instructions.
+    \item [Haotian Qi] Decoding and executing data processing (register) instructions.
+    \item [Bingdong Li] Decoding and executing single data transfer instructions.
+\end{description}
+
+In practice, single data transfer instructions and branch instructions were easier to
+implement. Due to Mr. Hussain being occupied by a then-upcoming interview on 2023-6-6,
+Mr. Li implemented the three simpler tasks (1., 2., and 6.), as well as implementing
+some utility functions as described in the following section.
+
+\section{Implementation Strategies}
+
+We implemented the \verb|decode_segments| function, which decoded a binary instruction
+and stored a variable number of binary segments of specifiable lengths in provided pointers.
+This function simplified the decoding of data processing instructions and single data transfer
+instructions (branch instructions had a simple enough structure that ad hoc decoding was more
+efficient).
+
+Instead of decoding object code into an internal representation, and then decoding that,
+we decided instead to merge the decoding and execution steps. The highest level function,
+\verb|decode_execute|, would decide the type of each instruction and delegate decoding and
+execution to instruction type specific procedures. This modular structure allowed us to
+cooperate without creating frequent merge conflicts. Due to their simplicity, this function
+also executed the special instructions (nop and halt), and also incremented the program
+counter for non-branch instructions.
+
+Each instruction type specific procedure would similarly decide the subtype, decode the
+shared portions (e.g., \verb|rd| for data processing (immediate) instructions),
+and pass them (as well as the undecoded parts) as arguments to further procedures that 
+actually executes the instructions, doing any further decoding as necessary. This meant
+that only one procedure would be responsible for the decoding and execution of each
+instruction subtype, and hence debugging could be concentrated on a small segment of the code.
+We reasoned that the subtype deciding code would be easy to debug even in the event of
+a mistake, simply by inspecting standard debugging output. In practice, no such mistake
+was made.
+
+Instead of allowing ad hoc setting of registers and memory locations, we defined standard
+functions and procedures for reading and manipulating memory and the register file (task 1.).
+This allowed some conditions (e.g., the zero register should ignore any sets) to be easily
+implemented. We stored memory as an array of \verb|uint_8|s (i.e., bytes), and registers
+as an array of of 34 \verb|uint_64|s (at the time, it was not clear if we could ignore
+everything stack pointer related in the spec). We placed the zero register at position 31,
+so that the common practice of treating a reference to register \verb|0b1111| as a reference
+to the zero register would require minimal additional code.
+
+Overall, we adopted a strategy of centrally defining shared code for common, repetitive tasks,
+using procedure calls to implicity traverse the decision tree, and allocating responsibility
+by function so that implementation details for the decoding and execution of each individual
+instruction can be left to a single person, thus minimizing implementation conflicts.
+
+\end{document}
